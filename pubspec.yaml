@@ -24,6 +24,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
+  # Hanya dipakai di test/widget_test.dart untuk menyediakan implementasi
+  # sqflite di lingkungan test (tidak ada platform channel asli saat
+  # `flutter test`). Tidak memengaruhi build Android/iOS.
+  sqflite_common_ffi: ^2.3.3
 
 flutter:
   uses-material-design: true
