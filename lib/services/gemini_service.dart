@@ -106,7 +106,7 @@ class GeminiService {
     required Map<String, dynamic> financeContext,
     String proxyUrl = '',
   }) async {
-    const prompt = '''
+    final prompt = '''
 Kamu adalah Finchat AI, asisten keuangan pribadi yang ramah dan ringkas.
 Selalu jawab dalam Bahasa Indonesia.
 
@@ -222,7 +222,7 @@ $text
     required String mimeType,
     String proxyUrl = '',
   }) async {
-    const prompt = '''
+    final prompt = '''
 Analisis foto struk belanja ini.
 Ekstrak total transaksi yang paling jelas dan relevan untuk pencatatan keuangan.
 Balas HANYA JSON valid:
