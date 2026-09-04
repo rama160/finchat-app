@@ -112,35 +112,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // BUGFIX: HomeScreen tetap hidup selamanya di dalam IndexedStack (tidak
-    // pernah dispose saat pindah tab), sehingga tanpa listener ini daftar
-    // transaksi & total di tab Transaksi tidak ikut ter-refresh saat transaksi
-    // baru dicatat dari tab Chat AI/Dashboard/Laporan. Pola listener ini sudah
-    // dipakai persis sama di DashboardScreen & ReportsScreen; di sini hanya
-    // dilengkapi agar konsisten, bukan logika baru.
-    DatabaseHelper.transactionChanges.addListener(_onTransactionsChanged);
     _refreshTransactions();
     _loadSavedApiKey(); // Ditambahkan: sinkron dengan API key dari halaman Pengaturan
-  }
-
-  void _onTransactionsChanged() {
-    if (mounted) _refreshTransactions();
   }
 
   Future<void> _loadSavedApiKey() async {
     final saved = await PrefsService.getApiKey();
     if (saved.isNotEmpty && mounted) {
-      _apiKeyController.text = saved;
-    }
-  }
-
-  // BUGFIX: karena HomeScreen tidak pernah dibuat ulang selama app berjalan
-  // (IndexedStack), controller ini bisa basi jika API key diubah dari tab
-  // Pengaturan. Method ini menyamakan controller dengan nilai tersimpan
-  // terbaru sebelum dipakai, tanpa mengubah alur/validasi yang sudah ada.
-  Future<void> _syncApiKeyFromPrefs() async {
-    final saved = await PrefsService.getApiKey();
-    if (mounted && saved != _apiKeyController.text) {
       _apiKeyController.text = saved;
     }
   }
@@ -164,7 +142,6 @@ class _HomeScreenState extends State<HomeScreen> {
   // Teks sederhana tidak membutuhkan Gemini; hanya scan struk yang memerlukan
   // koneksi AI.
   Future<void> _processReceiptImage(ImageSource source) async {
-    await _syncApiKeyFromPrefs();
     final proxyUrl = await PrefsService.getAiProxyUrl();
     if (_apiKeyController.text.trim().isEmpty && proxyUrl.trim().isEmpty) {
       _showApiKeyDialog();
@@ -270,7 +247,6 @@ class _HomeScreenState extends State<HomeScreen> {
     final text = _textInputController.text.trim();
     if (text.isEmpty || _isLoading) return;
 
-    await _syncApiKeyFromPrefs();
     setState(() => _isLoading = true);
     try {
       final localParsed = TransactionParser.parseMany(text);
@@ -347,7 +323,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    DatabaseHelper.transactionChanges.removeListener(_onTransactionsChanged);
     _apiKeyController.dispose();
     _textInputController.dispose();
     super.dispose();
