@@ -1,242 +1,305 @@
-/// Parser lokal untuk transaksi sederhana.
-///
-/// Tujuannya adalah membuat pencatatan transaksi dasar tetap berjalan tanpa
-/// internet/API. Parser ini sengaja konservatif: sebuah potongan hanya dianggap
-/// transaksi jika memiliki nominal yang dapat dikenali.
+import '../models/transaction_model.dart';
+
 class TransactionParser {
-  static const _incomeWords = [
-    'gaji',
-    'bonus',
-    'pendapatan',
-    'pemasukan',
-    'terima',
-    'menerima',
-    'dapat',
-    'diterima',
-    'transfer masuk',
-  ];
+  /// Memisahkan beberapa transaksi yang ditulis dalam satu kalimat.
+  ///
+  /// Contoh:
+  /// beli nasi 25rb, rokok 30 rb, es 10 rb
+  static List<String> splitTransactions(String input) {
+    if (input.trim().isEmpty) return [];
 
-  static const _categoryKeywords = <String, List<String>>{
-    'Makanan': [
-      'nasi', 'makan', 'ayam', 'bakso', 'mie', 'mi ', 'sate', 'warteg',
-      'warung', 'resto', 'restaurant', 'kuliner', 'es ', 'kopi', 'teh ',
-      'minum', 'minuman', 'snack', 'cemilan', 'roti', 'jajan', 'sarapan',
-      'makanan',
-    ],
-    'Rokok': ['rokok', 'kretek', 'filter', 'tembakau', 'vape'],
-    'Transportasi': [
-      'bensin', 'pertalite', 'pertamax', 'solar', 'ojek', 'grab', 'gojek',
-      'taxi', 'taksi', 'parkir', 'tol', 'bus', 'kereta', 'transport',
-      'angkot', 'ongkos',
-    ],
-    'Belanja': [
-      'lipstick', 'lipstik', 'baju', 'celana', 'sepatu', 'tas', 'makeup',
-      'kosmetik', 'skincare', 'belanja', 'barang', 'shopee', 'tokopedia',
-      'lazada', 'marketplace',
-    ],
-    'Tagihan': [
-      'listrik', 'air', 'pln', 'internet', 'wifi', 'tagihan', 'sewa',
-      'kontrakan', 'kos ', 'cicilan', 'bpjs',
-    ],
-    'Pulsa & Data': [
-      'pulsa', 'data', 'paket internet', 'kuota', 'telkomsel', 'indosat',
-      'xl ', 'tri ', 'by.u',
-    ],
-    'Kesehatan': [
-      'obat', 'apotek', 'dokter', 'rumah sakit', 'klinik', 'vitamin',
-      'kesehatan',
-    ],
-    'Hiburan': [
-      'film', 'bioskop', 'game', 'musik', 'spotify', 'netflix', 'hiburan',
-      'tiket', 'konser',
-    ],
-    'Pendidikan': [
-      'sekolah', 'kuliah', 'buku', 'kursus', 'les', 'pendidikan', 'kuliah',
-    ],
-    'Rumah Tangga': [
-      'sabun', 'deterjen', 'gas', 'elpiji', 'perabot', 'rumah tangga',
-      'kebersihan',
-    ],
-    'Gaji': ['gaji', 'salary', 'upah'],
-    'Bonus': ['bonus', 'insentif', 'thr'],
-  };
+    final protectedInput = input.replaceAllMapped(
+      RegExp(r'(\d),(\d+\s*(?:juta|jt|ribu|rb|k)?)', caseSensitive: false),
+      (match) => '${match.group(1)}<DECIMAL>${match.group(2)}',
+    );
 
-  static final RegExp _amountPattern = RegExp(
-    r'(?:rp\.?\s*)?([0-9]{1,3}(?:[.,][0-9]{3})*|[0-9]+(?:[.,][0-9]+)?)\s*(rb|ribu|k|jt|juta|m)?\b',
-    caseSensitive: false,
-  );
-
-  /// Memecah input seperti:
-  /// "beli nasi 25rb, rokok 30 rb, es 10 rb"
-  /// menjadi beberapa transaksi.
-  static List<Map<String, dynamic>> parseMany(String text) {
-    final segments = _splitTransactionText(text);
-
-    final result = <Map<String, dynamic>>[];
-    for (final segment in segments) {
-      final parsed = parseOne(segment);
-      if (parsed != null) result.add(parsed);
-    }
-    return result;
+    return protectedInput
+        .split(RegExp(r'[,;\n]+'))
+        .map((item) => item.replaceAll('<DECIMAL>', ',').trim())
+        .where((item) => item.isNotEmpty)
+        .toList();
   }
 
-  /// Memisahkan transaksi tanpa salah memecah angka desimal seperti
-  /// `bonus 1,5 juta, beli nasi 25rb`. Koma di antara dua digit dianggap
-  /// bagian dari angka; koma yang memisahkan teks transaksi dianggap delimiter.
-  static List<String> _splitTransactionText(String text) {
-    final normalized = text.replaceAll('\r\n', '\n');
-    final result = <String>[];
-    final buffer = StringBuffer();
+  static List<TransactionModel> parseTransactions(String input) {
+    final parts = splitTransactions(input);
 
-    for (var i = 0; i < normalized.length; i++) {
-      final char = normalized[i];
-      if (char == '\n' || char == ';') {
-        final value = buffer.toString().trim();
-        if (value.isNotEmpty) result.add(value);
-        buffer.clear();
-        continue;
+    final transactions = <TransactionModel>[];
+
+    for (final part in parts) {
+      final transaction = parseSingleTransaction(part);
+
+      if (transaction != null) {
+        transactions.add(transaction);
       }
+    }
 
-      if (char == ',') {
-        int previous = i - 1;
-        while (previous >= 0 && normalized[previous].trim().isEmpty) {
-          previous--;
-        }
-        int next = i + 1;
-        while (next < normalized.length && normalized[next].trim().isEmpty) {
-          next++;
-        }
+    return transactions;
+  }
 
-        final isDecimalOrNumberSeparator =
-            previous >= 0 &&
-            next < normalized.length &&
-            _isDigit(normalized[previous]) &&
-            _isDigit(normalized[next]);
+  static TransactionModel? parseSingleTransaction(String input) {
+    final text = input.trim();
 
-        if (!isDecimalOrNumberSeparator) {
-          final value = buffer.toString().trim();
-          if (value.isNotEmpty) result.add(value);
-          buffer.clear();
-          continue;
-        }
+    if (text.isEmpty) return null;
+
+    final amount = extractAmount(text);
+
+    if (amount <= 0) return null;
+
+    final type = detectType(text);
+    final category = detectCategory(text, type);
+    final description = extractDescription(text);
+
+    return TransactionModel(
+      type: type,
+      category: category,
+      description: description,
+      amount: amount,
+      date: DateTime.now(),
+    );
+  }
+
+  static double extractAmount(String input) {
+    var text = input.toLowerCase();
+
+    // Contoh:
+    // 1,5 juta
+    // 2.5 juta
+    final decimalMillion = RegExp(
+      r'(\d+(?:[,.]\d+)?)\s*(juta|jt)',
+      caseSensitive: false,
+    ).firstMatch(text);
+
+    if (decimalMillion != null) {
+      final numberText = decimalMillion
+          .group(1)!
+          .replaceAll(',', '.');
+
+      final value = double.tryParse(numberText);
+
+      if (value != null) {
+        return value * 1000000;
       }
-
-      buffer.write(char);
     }
 
-    final value = buffer.toString().trim();
-    if (value.isNotEmpty) result.add(value);
-    return result;
-  }
+    // Contoh:
+    // 500rb
+    // 50 rb
+    // 500 ribu
+    // 10k
+    final thousand = RegExp(
+      r'(\d+(?:[,.]\d+)?)\s*(rb|ribu|k)',
+      caseSensitive: false,
+    ).firstMatch(text);
 
-  static bool _isDigit(String value) => RegExp(r'^[0-9]$').hasMatch(value);
+    if (thousand != null) {
+      final numberText = thousand
+          .group(1)!
+          .replaceAll(',', '.');
 
-  static Map<String, dynamic>? parseOne(String text) {
-    final normalized = text.trim();
-    if (normalized.isEmpty) return null;
+      final value = double.tryParse(numberText);
 
-    final match = _amountPattern.firstMatch(normalized);
-    if (match == null) return null;
-
-    final amount = _parseAmount(match.group(1)!, match.group(2));
-    if (amount == null || amount <= 0) return null;
-
-    final lower = normalized.toLowerCase();
-    final type = _detectType(lower);
-    final category = _detectCategory(lower, type);
-    final description = _cleanDescription(normalized, match);
-
-    return {
-      'type': type,
-      'category': category,
-      'description': description.isEmpty ? normalized : description,
-      'amount': amount,
-      'merchant': '',
-    };
-  }
-
-  static String _detectType(String lower) {
-    for (final word in _incomeWords) {
-      if (lower.contains(word)) return 'income';
+      if (value != null) {
+        return value * 1000;
+      }
     }
+
+    // Contoh:
+    // Rp50.000
+    // Rp 25.000
+    final rupiah = RegExp(
+      r'rp\.?\s*(\d[\d.]*(?:,\d+)?)',
+      caseSensitive: false,
+    ).firstMatch(text);
+
+    if (rupiah != null) {
+      return _parseIndonesianNumber(rupiah.group(1)!);
+    }
+
+    // Contoh:
+    // 50.000
+    // 100000
+    final normalNumber = RegExp(
+      r'\b(\d{1,3}(?:\.\d{3})+|\d+)\b',
+    ).allMatches(text);
+
+    if (normalNumber.isNotEmpty) {
+      final match = normalNumber.last;
+
+      return _parseIndonesianNumber(match.group(1)!);
+    }
+
+    return 0;
+  }
+
+  static double _parseIndonesianNumber(String value) {
+    var clean = value.trim();
+
+    // Format Indonesia:
+    // 50.000 -> 50000
+    // 1.500.000 -> 1500000
+    if (clean.contains('.')) {
+      clean = clean.replaceAll('.', '');
+    }
+
+    // Jika ada koma pada nominal biasa.
+    clean = clean.replaceAll(',', '.');
+
+    return double.tryParse(clean) ?? 0;
+  }
+
+  static String detectType(String input) {
+    final text = input.toLowerCase();
+
+    const incomeWords = [
+      'gaji',
+      'bonus',
+      'pendapatan',
+      'uang masuk',
+      'dapat uang',
+      'menerima',
+      'dibayar',
+      'jualan',
+      'hasil jual',
+      'profit',
+    ];
+
+    for (final word in incomeWords) {
+      if (text.contains(word)) {
+        return 'income';
+      }
+    }
+
     return 'expense';
   }
 
-  static String _detectCategory(String lower, String type) {
+  static String detectCategory(String input, String type) {
+    final text = input.toLowerCase();
+
     if (type == 'income') {
-      if (lower.contains('gaji')) return 'Gaji';
-      if (lower.contains('bonus') || lower.contains('insentif') || lower.contains('thr')) {
-        return 'Bonus';
+      if (text.contains('gaji')) return 'Gaji';
+      if (text.contains('bonus')) return 'Bonus';
+      if (text.contains('jualan') || text.contains('jual')) {
+        return 'Penjualan';
       }
-      return 'Pemasukan';
+
+      return 'Pendapatan Lainnya';
     }
 
-    for (final entry in _categoryKeywords.entries) {
+    const categoryKeywords = {
+      'Makanan': [
+        'nasi',
+        'makan',
+        'mie',
+        'bakso',
+        'ayam',
+        'sate',
+        'kopi',
+        'es ',
+        'minum',
+        'teh',
+        'roti',
+        'pizza',
+        'burger',
+      ],
+      'Rokok': [
+        'rokok',
+        'cigarette',
+        'marlboro',
+        'surya',
+        'sampoerna',
+      ],
+      'Transportasi': [
+        'bensin',
+        'pertalite',
+        'pertamax',
+        'solar',
+        'parkir',
+        'ojek',
+        'grab',
+        'gojek',
+        'taxi',
+        'bus',
+      ],
+      'Belanja': [
+        'beli',
+        'lipstick',
+        'baju',
+        'sepatu',
+        'tas',
+        'celana',
+        'kaos',
+      ],
+      'Tagihan': [
+        'listrik',
+        'air',
+        'internet',
+        'wifi',
+        'pulsa',
+        'token',
+      ],
+      'Kesehatan': [
+        'obat',
+        'dokter',
+        'rumah sakit',
+        'vitamin',
+      ],
+      'Hiburan': [
+        'bioskop',
+        'game',
+        'netflix',
+        'spotify',
+      ],
+    };
+
+    for (final entry in categoryKeywords.entries) {
       for (final keyword in entry.value) {
-        if (lower.contains(keyword)) return entry.key;
+        if (text.contains(keyword)) {
+          return entry.key;
+        }
       }
     }
+
     return 'Lainnya';
   }
 
-  static double? _parseAmount(String rawNumber, String? suffix) {
-    var raw = rawNumber.trim().toLowerCase();
-    if (raw.isEmpty) return null;
+  static String extractDescription(String input) {
+    var text = input.trim();
 
-    double value;
-    if (raw.contains('.') && raw.contains(',')) {
-      // 1.500,50 -> 1500.50
-      raw = raw.replaceAll('.', '').replaceAll(',', '.');
-      value = double.tryParse(raw) ?? double.nan;
-    } else if (RegExp(r'^\d{1,3}(?:[.,]\d{3})+$').hasMatch(raw)) {
-      // 50.000 / 1,500 -> 50000 / 1500
-      value = double.tryParse(raw.replaceAll(RegExp(r'[.,]'), '')) ?? double.nan;
-    } else {
-      value = double.tryParse(raw.replaceAll(',', '.')) ?? double.nan;
-    }
+    // Hapus nominal rupiah dan satuannya.
+    text = text.replaceAll(
+      RegExp(
+        r'rp\.?\s*\d[\d.,]*\s*(juta|jt|ribu|rb|k)?',
+        caseSensitive: false,
+      ),
+      '',
+    );
 
-    if (value.isNaN || value.isInfinite) return null;
+    text = text.replaceAll(
+      RegExp(
+        r'\d+(?:[,.]\d+)?\s*(juta|jt|ribu|rb|k)',
+        caseSensitive: false,
+      ),
+      '',
+    );
 
-    final s = (suffix ?? '').toLowerCase().replaceAll(' ', '');
-    switch (s) {
-      case 'k':
-      case 'rb':
-      case 'ribu':
-        value *= 1000;
-        break;
-      case 'jt':
-      case 'juta':
-      case 'm':
-        value *= 1000000;
-        break;
-    }
+    text = text.replaceAll(
+      RegExp(r'\b\d{1,3}(?:\.\d{3})+\b'),
+      '',
+    );
 
-    return value.isFinite ? value : null;
-  }
+    // Bersihkan kata kerja umum.
+    text = text.replaceAll(
+      RegExp(
+        r'\b(beli|bayar|membeli|dapat|menerima|terima|gaji)\b',
+        caseSensitive: false,
+      ),
+      '',
+    );
 
-  static String _cleanDescription(String text, RegExpMatch match) {
-    var description = text.substring(0, match.start).trim();
-    if (description.isEmpty) {
-      description = text.substring(0, match.end).trim();
-    }
-
-    description = description
-        .replaceFirst(RegExp(r'^(beli|belanja|bayar|makan|minum|catat|pengeluaran)\s+', caseSensitive: false), '')
+    text = text
+        .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
-    if (description.isEmpty) {
-      final beforeAmount = text.substring(0, match.start).trim();
-      return beforeAmount;
-    }
-
-    return description;
-  }
-
-  /// Menghasilkan nominal manusiawi untuk pesan UI/log.
-  static String formatAmount(double amount) {
-    final rounded = amount.round();
-    if (rounded % 1000000 == 0) return '${rounded ~/ 1000000} juta';
-    if (rounded % 1000 == 0) return '${rounded ~/ 1000} ribu';
-    return rounded.toString();
+    return text.isEmpty ? 'Transaksi' : text;
   }
 }
