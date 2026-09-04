@@ -1,15 +1,19 @@
 import '../models/transaction_model.dart';
 
 class TransactionParser {
-  /// Memisahkan beberapa transaksi yang ditulis dalam satu kalimat.
+  /// Memisahkan input menjadi beberapa transaksi.
   ///
   /// Contoh:
   /// beli nasi 25rb, rokok 30 rb, es 10 rb
   static List<String> splitTransactions(String input) {
     if (input.trim().isEmpty) return [];
 
+    // Lindungi koma desimal seperti "1,5 juta"
     final protectedInput = input.replaceAllMapped(
-      RegExp(r'(\d),(\d+\s*(?:juta|jt|ribu|rb|k)?)', caseSensitive: false),
+      RegExp(
+        r'(\d),(\d+\s*(?:juta|jt|ribu|rb|k)?)',
+        caseSensitive: false,
+      ),
       (match) => '${match.group(1)}<DECIMAL>${match.group(2)}',
     );
 
@@ -20,13 +24,14 @@ class TransactionParser {
         .toList();
   }
 
-  static List<TransactionModel> parseTransactions(String input) {
+  /// API lama yang dipakai oleh main.dart, chat_screen.dart,
+  /// dan transaction_parser_test.dart.
+  static List<TransactionModel> parseMany(String input) {
     final parts = splitTransactions(input);
-
     final transactions = <TransactionModel>[];
 
     for (final part in parts) {
-      final transaction = parseSingleTransaction(part);
+      final transaction = parseOne(part);
 
       if (transaction != null) {
         transactions.add(transaction);
@@ -36,7 +41,8 @@ class TransactionParser {
     return transactions;
   }
 
-  static TransactionModel? parseSingleTransaction(String input) {
+  /// Mem-parsing satu transaksi.
+  static TransactionModel? parseOne(String input) {
     final text = input.trim();
 
     if (text.isEmpty) return null;
@@ -49,31 +55,48 @@ class TransactionParser {
     final category = detectCategory(text, type);
     final description = extractDescription(text);
 
+    final now = DateTime.now();
+
     return TransactionModel(
       type: type,
       category: category,
       description: description,
       amount: amount,
-      date: DateTime.now(),
+      source: 'local',
+      transactionDate: now.toIso8601String().split('T').first,
+      transactionTime:
+          '${now.hour.toString().padLeft(2, '0')}:'
+          '${now.minute.toString().padLeft(2, '0')}:'
+          '${now.second.toString().padLeft(2, '0')}',
     );
   }
 
+  /// Alias agar kompatibel dengan kode yang mungkin menggunakan
+  /// nama parseTransactions.
+  static List<TransactionModel> parseTransactions(String input) {
+    return parseMany(input);
+  }
+
+  /// Alias agar kompatibel dengan kode yang mungkin menggunakan
+  /// nama parseSingleTransaction.
+  static TransactionModel? parseSingleTransaction(String input) {
+    return parseOne(input);
+  }
+
   static double extractAmount(String input) {
-    var text = input.toLowerCase();
+    final text = input.toLowerCase();
 
     // Contoh:
     // 1,5 juta
     // 2.5 juta
-    final decimalMillion = RegExp(
+    // 1 juta
+    final millionMatch = RegExp(
       r'(\d+(?:[,.]\d+)?)\s*(juta|jt)',
       caseSensitive: false,
     ).firstMatch(text);
 
-    if (decimalMillion != null) {
-      final numberText = decimalMillion
-          .group(1)!
-          .replaceAll(',', '.');
-
+    if (millionMatch != null) {
+      final numberText = millionMatch.group(1)!.replaceAll(',', '.');
       final value = double.tryParse(numberText);
 
       if (value != null) {
@@ -82,20 +105,17 @@ class TransactionParser {
     }
 
     // Contoh:
-    // 500rb
+    // 50rb
     // 50 rb
-    // 500 ribu
+    // 50 ribu
     // 10k
-    final thousand = RegExp(
+    final thousandMatch = RegExp(
       r'(\d+(?:[,.]\d+)?)\s*(rb|ribu|k)',
       caseSensitive: false,
     ).firstMatch(text);
 
-    if (thousand != null) {
-      final numberText = thousand
-          .group(1)!
-          .replaceAll(',', '.');
-
+    if (thousandMatch != null) {
+      final numberText = thousandMatch.group(1)!.replaceAll(',', '.');
       final value = double.tryParse(numberText);
 
       if (value != null) {
@@ -105,27 +125,28 @@ class TransactionParser {
 
     // Contoh:
     // Rp50.000
-    // Rp 25.000
-    final rupiah = RegExp(
+    // Rp 50.000
+    // Rp50000
+    final rupiahMatch = RegExp(
       r'rp\.?\s*(\d[\d.]*(?:,\d+)?)',
       caseSensitive: false,
     ).firstMatch(text);
 
-    if (rupiah != null) {
-      return _parseIndonesianNumber(rupiah.group(1)!);
+    if (rupiahMatch != null) {
+      return _parseIndonesianNumber(rupiahMatch.group(1)!);
     }
 
     // Contoh:
     // 50.000
     // 100000
-    final normalNumber = RegExp(
+    final normalMatches = RegExp(
       r'\b(\d{1,3}(?:\.\d{3})+|\d+)\b',
     ).allMatches(text);
 
-    if (normalNumber.isNotEmpty) {
-      final match = normalNumber.last;
-
-      return _parseIndonesianNumber(match.group(1)!);
+    if (normalMatches.isNotEmpty) {
+      return _parseIndonesianNumber(
+        normalMatches.last.group(1)!,
+      );
     }
 
     return 0;
@@ -134,14 +155,13 @@ class TransactionParser {
   static double _parseIndonesianNumber(String value) {
     var clean = value.trim();
 
-    // Format Indonesia:
     // 50.000 -> 50000
     // 1.500.000 -> 1500000
     if (clean.contains('.')) {
       clean = clean.replaceAll('.', '');
     }
 
-    // Jika ada koma pada nominal biasa.
+    // Format desimal seperti 1,5
     clean = clean.replaceAll(',', '.');
 
     return double.tryParse(clean) ?? 0;
@@ -172,13 +192,18 @@ class TransactionParser {
     return 'expense';
   }
 
-  static String detectCategory(String input, String type) {
+  static String detectCategory(
+    String input,
+    String type,
+  ) {
     final text = input.toLowerCase();
 
     if (type == 'income') {
       if (text.contains('gaji')) return 'Gaji';
       if (text.contains('bonus')) return 'Bonus';
-      if (text.contains('jualan') || text.contains('jual')) {
+
+      if (text.contains('jualan') ||
+          text.contains('jual')) {
         return 'Penjualan';
       }
 
@@ -234,8 +259,12 @@ class TransactionParser {
         'air',
         'internet',
         'wifi',
-        'pulsa',
         'token',
+      ],
+      'Pulsa & Data': [
+        'pulsa',
+        'paket data',
+        'kuota',
       ],
       'Kesehatan': [
         'obat',
@@ -248,6 +277,19 @@ class TransactionParser {
         'game',
         'netflix',
         'spotify',
+      ],
+      'Pendidikan': [
+        'sekolah',
+        'kuliah',
+        'buku',
+        'kursus',
+      ],
+      'Rumah Tangga': [
+        'sabun',
+        'deterjen',
+        'shampoo',
+        'shampo',
+        'alat rumah',
       ],
     };
 
@@ -287,10 +329,10 @@ class TransactionParser {
       '',
     );
 
-    // Bersihkan kata kerja umum.
+    // Hapus kata kerja umum.
     text = text.replaceAll(
       RegExp(
-        r'\b(beli|bayar|membeli|dapat|menerima|terima|gaji)\b',
+        r'\b(beli|bayar|membeli|dapat|menerima|terima)\b',
         caseSensitive: false,
       ),
       '',
