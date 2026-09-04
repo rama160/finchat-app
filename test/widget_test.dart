@@ -10,29 +10,18 @@ void main() {
 TestWidgetsFlutterBinding.ensureInitialized();
 
 setUpAll(() async {
-// Gunakan database FFI agar sqflite dapat berjalan di environment
-// flutter test tanpa membutuhkan plugin SQLite native.
 sqfliteFfiInit();
 databaseFactory = databaseFactoryFfi;
 
-```
-// Inisialisasi locale Bahasa Indonesia yang digunakan oleh
-// Dashboard dan Reports.
 await initializeDateFormatting('id_ID', null);
 
-// Mock SharedPreferences untuk environment test.
 SharedPreferences.setMockInitialValues(
   <String, Object>{},
 );
 
-// Mock resmi flutter_secure_storage.
-//
-// Jangan menggunakan MethodChannel manual karena flutter_secure_storage
-// 11.x menggunakan platform implementation/federated plugin.
 FlutterSecureStorage.setMockInitialValues(
   <String, String>{},
 );
-```
 
 });
 
@@ -43,13 +32,6 @@ await tester.pumpWidget(
 const FinchatApp(),
 );
 
-```
-  // Jalankan satu frame tambahan agar widget selesai dibangun.
-  //
-  // Sengaja tidak menggunakan pumpAndSettle() karena beberapa widget
-  // aplikasi menjalankan proses async dan animasi internal pada saat
-  // initialization. Test ini hanya bertujuan memastikan FinchatApp
-  // berhasil dibuat.
   await tester.pump();
 
   expect(
@@ -57,7 +39,6 @@ const FinchatApp(),
     findsOneWidget,
   );
 },
-```
 
 );
 }
