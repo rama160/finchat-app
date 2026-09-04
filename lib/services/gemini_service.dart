@@ -222,7 +222,7 @@ $text
     required String mimeType,
     String proxyUrl = '',
   }) async {
-    final prompt = '''
+    const prompt = '''
 Analisis foto struk belanja ini.
 Ekstrak total transaksi yang paling jelas dan relevan untuk pencatatan keuangan.
 Balas HANYA JSON valid:
