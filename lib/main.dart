@@ -7,6 +7,7 @@ import 'package:google_generative_ai/google_generative_ai.dart';
 import 'models/transaction_model.dart';
 import 'services/database_helper.dart';
 import 'services/prefs_service.dart';
+import 'services/gemini_service.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/reports_screen.dart';
@@ -61,8 +62,8 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final screens = [
-      DashboardScreen(onNavigate: _goToTab),
       const HomeScreen(),
+      const DashboardScreen(),
       const ChatScreen(),
       const ReportsScreen(),
       const SettingsScreen(),
@@ -78,9 +79,9 @@ class _MainShellState extends State<MainShell> {
         onTap: _goToTab,
         items: const [
           BottomNavigationBarItem(
-              icon: Icon(Icons.dashboard), label: 'Dashboard'),
-          BottomNavigationBarItem(
               icon: Icon(Icons.receipt_long), label: 'Transaksi'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.dashboard), label: 'Dashboard'),
           BottomNavigationBarItem(
               icon: Icon(Icons.chat_bubble), label: 'Chat AI'),
           BottomNavigationBarItem(
@@ -137,14 +138,17 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // Menangkap Foto Struk dan Proses dengan Gemini OCR
-  Future<void> _processReceiptImage() async {
+  // Diperbarui: menerima ImageSource agar bisa dipicu dari ikon lampiran
+  // (galeri) maupun tombol kamera bulat pada input bar, tanpa mengubah
+  // logika ekstraksi struk itu sendiri.
+  Future<void> _processReceiptImage(ImageSource source) async {
     if (_apiKeyController.text.trim().isEmpty) {
       _showApiKeyDialog();
       return;
     }
 
     final picker = ImagePicker();
-    final image = await picker.pickImage(source: ImageSource.gallery);
+    final image = await picker.pickImage(source: source);
     if (image == null) return;
 
     setState(() => _isLoading = true);
@@ -189,6 +193,56 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     } finally {
       setState(() => _isLoading = false);
+    }
+  }
+
+  // BARU: mengetik transaksi dalam bahasa natural lewat input bar
+  // (mis. "beli kopi 20000") lalu diurai oleh Gemini menjadi transaksi.
+  Future<void> _submitTextTransaction() async {
+    final text = _textInputController.text.trim();
+    if (text.isEmpty) return;
+
+    if (_apiKeyController.text.trim().isEmpty) {
+      _showApiKeyDialog();
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final result = await GeminiService.parseTransactionText(
+        apiKey: _apiKeyController.text.trim(),
+        text: text,
+      );
+
+      if (result != null) {
+        final now = DateTime.now();
+        final newTx = TransactionModel(
+          transactionDate: DateFormat('yyyy-MM-dd').format(now),
+          transactionTime: DateFormat('HH:mm:ss').format(now),
+          type: result['type'] == 'income' ? 'income' : 'expense',
+          category: (result['category'] ?? 'Lainnya').toString(),
+          description: (result['description'] ?? text).toString(),
+          amount: double.tryParse(result['amount'].toString()) ?? 0.0,
+          merchant: (result['merchant'] ?? '').toString(),
+          source: 'text',
+        );
+        await DatabaseHelper.instance.insertTransaction(newTx);
+        _textInputController.clear();
+        _refreshTransactions();
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Tidak dapat memahami transaksi tersebut, coba ketik ulang.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gagal memproses transaksi: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -279,13 +333,81 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                         ),
                 ),
+                _buildInputBar(),
               ],
             ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _processReceiptImage,
-        backgroundColor: Colors.teal,
-        icon: const Icon(Icons.camera_alt, color: Colors.white),
-        label: const Text('Scan Struk', style: TextStyle(color: Colors.white)),
+    );
+  }
+
+  // BARU: input bar bergaya chat (emoji, teks "Pesan", lampiran struk,
+  // tombol bulat kamera/kirim) menggantikan FloatingActionButton lama.
+  Widget _buildInputBar() {
+    final hasText = _textInputController.text.trim().isNotEmpty;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 6, 10, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: Colors.grey.shade300),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.05),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.emoji_emotions_outlined, color: Colors.grey.shade500),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _textInputController,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.send,
+                        decoration: const InputDecoration(
+                          hintText: 'Pesan',
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) => _submitTextTransaction(),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(Icons.attach_file, color: Colors.grey.shade600),
+                      tooltip: 'Lampirkan Struk',
+                      onPressed: () => _processReceiptImage(ImageSource.gallery),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            CircleAvatar(
+              radius: 24,
+              backgroundColor: Colors.teal,
+              child: IconButton(
+                icon: Icon(hasText ? Icons.send : Icons.camera_alt, color: Colors.white),
+                tooltip: hasText ? 'Kirim Transaksi' : 'Scan Struk',
+                onPressed: hasText
+                    ? _submitTextTransaction
+                    : () => _processReceiptImage(ImageSource.camera),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
