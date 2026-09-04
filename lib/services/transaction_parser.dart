@@ -1,5 +1,3 @@
-import '../models/transaction_model.dart';
-
 class TransactionParser {
   /// Memisahkan beberapa transaksi.
   ///
