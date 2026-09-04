@@ -1,0 +1,64 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.44.6'
+          channel: 'stable'
+
+      - name: Re-generate Android Project Files
+        run: flutter create . --platforms=android
+
+      - name: Configure Android minimum SDK
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('android/app/build.gradle.kts')
+          if p.exists():
+              s = p.read_text()
+              s = s.replace('minSdk = flutter.minSdkVersion', 'minSdk = 23')
+              p.write_text(s)
+          else:
+              p = Path('android/app/build.gradle')
+              if p.exists():
+                  s = p.read_text()
+                  s = s.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 23')
+                  p.write_text(s)
+          PY
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run Unit Tests
+        run: flutter test
+
+      - name: Build APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Finchat-App-Release
+          path: build/app/outputs/flutter-apk/app-release.apk
