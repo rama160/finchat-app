@@ -1,5 +1,5 @@
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -7,63 +7,57 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:finchat_app/main.dart';
 
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
+TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUpAll(() async {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+setUpAll(() async {
+// Gunakan database FFI agar sqflite dapat berjalan di environment
+// flutter test tanpa membutuhkan plugin SQLite native.
+sqfliteFfiInit();
+databaseFactory = databaseFactoryFfi;
 
-    await initializeDateFormatting('id_ID', null);
+```
+// Inisialisasi locale Bahasa Indonesia yang digunakan oleh
+// Dashboard dan Reports.
+await initializeDateFormatting('id_ID', null);
 
-    SharedPreferences.setMockInitialValues(
-      <String, Object>{},
-    );
+// Mock SharedPreferences untuk environment test.
+SharedPreferences.setMockInitialValues(
+  <String, Object>{},
+);
 
-    const secureStorageChannel = MethodChannel(
-      'plugins.it_nomads.com/flutter_secure_storage',
-    );
+// Mock resmi flutter_secure_storage.
+//
+// Jangan menggunakan MethodChannel manual karena flutter_secure_storage
+// 11.x menggunakan platform implementation/federated plugin.
+FlutterSecureStorage.setMockInitialValues(
+  <String, String>{},
+);
+```
 
-    TestDefaultBinaryMessengerBinding
-        .instance
-        .defaultBinaryMessenger
-        .setMockMethodCallHandler(
-      secureStorageChannel,
-      (MethodCall methodCall) async {
-        switch (methodCall.method) {
-          case 'read':
-            return null;
+});
 
-          case 'readAll':
-            return <String, String>{};
+testWidgets(
+'FinchatApp dapat dibuat',
+(WidgetTester tester) async {
+await tester.pumpWidget(
+const FinchatApp(),
+);
 
-          case 'containsKey':
-            return false;
+```
+  // Jalankan satu frame tambahan agar widget selesai dibangun.
+  //
+  // Sengaja tidak menggunakan pumpAndSettle() karena beberapa widget
+  // aplikasi menjalankan proses async dan animasi internal pada saat
+  // initialization. Test ini hanya bertujuan memastikan FinchatApp
+  // berhasil dibuat.
+  await tester.pump();
 
-          case 'write':
-          case 'delete':
-          case 'deleteAll':
-            return null;
-
-          default:
-            return null;
-        }
-      },
-    );
-  });
-
-  testWidgets(
-    'FinchatApp dapat dibuat',
-    (WidgetTester tester) async {
-      await tester.pumpWidget(
-        const FinchatApp(),
-      );
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byType(FinchatApp),
-        findsOneWidget,
-      );
-    },
+  expect(
+    find.byType(FinchatApp),
+    findsOneWidget,
   );
+},
+```
+
+);
 }
