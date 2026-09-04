@@ -1,14 +1,14 @@
 import '../models/transaction_model.dart';
 
 class TransactionParser {
-  /// Memisahkan input menjadi beberapa transaksi.
+  /// Memisahkan beberapa transaksi.
   ///
   /// Contoh:
   /// beli nasi 25rb, rokok 30 rb, es 10 rb
   static List<String> splitTransactions(String input) {
     if (input.trim().isEmpty) return [];
 
-    // Lindungi koma desimal seperti "1,5 juta"
+    // Lindungi koma desimal seperti "1,5 juta".
     final protectedInput = input.replaceAllMapped(
       RegExp(
         r'(\d),(\d+\s*(?:juta|jt|ribu|rb|k)?)',
@@ -24,11 +24,14 @@ class TransactionParser {
         .toList();
   }
 
-  /// API lama yang dipakai oleh main.dart, chat_screen.dart,
-  /// dan transaction_parser_test.dart.
-  static List<TransactionModel> parseMany(String input) {
+  /// API utama yang digunakan main.dart, chat_screen.dart,
+  /// dan test lama.
+  ///
+  /// Hasilnya tetap List<Map<String, dynamic>> agar kompatibel
+  /// dengan struktur aplikasi yang sudah ada.
+  static List<Map<String, dynamic>> parseMany(String input) {
     final parts = splitTransactions(input);
-    final transactions = <TransactionModel>[];
+    final transactions = <Map<String, dynamic>>[];
 
     for (final part in parts) {
       final transaction = parseOne(part);
@@ -41,8 +44,8 @@ class TransactionParser {
     return transactions;
   }
 
-  /// Mem-parsing satu transaksi.
-  static TransactionModel? parseOne(String input) {
+  /// Mem-parsing satu transaksi menjadi Map.
+  static Map<String, dynamic>? parseOne(String input) {
     final text = input.trim();
 
     if (text.isEmpty) return null;
@@ -55,38 +58,27 @@ class TransactionParser {
     final category = detectCategory(text, type);
     final description = extractDescription(text);
 
-    final now = DateTime.now();
-
-    return TransactionModel(
-      type: type,
-      category: category,
-      description: description,
-      amount: amount,
-      source: 'local',
-      transactionDate: now.toIso8601String().split('T').first,
-      transactionTime:
-          '${now.hour.toString().padLeft(2, '0')}:'
-          '${now.minute.toString().padLeft(2, '0')}:'
-          '${now.second.toString().padLeft(2, '0')}',
-    );
+    return {
+      'type': type,
+      'category': category,
+      'description': description,
+      'amount': amount,
+    };
   }
 
-  /// Alias agar kompatibel dengan kode yang mungkin menggunakan
-  /// nama parseTransactions.
-  static List<TransactionModel> parseTransactions(String input) {
+  /// Alias kompatibilitas.
+  static List<Map<String, dynamic>> parseTransactions(String input) {
     return parseMany(input);
   }
 
-  /// Alias agar kompatibel dengan kode yang mungkin menggunakan
-  /// nama parseSingleTransaction.
-  static TransactionModel? parseSingleTransaction(String input) {
+  /// Alias kompatibilitas.
+  static Map<String, dynamic>? parseSingleTransaction(String input) {
     return parseOne(input);
   }
 
   static double extractAmount(String input) {
     final text = input.toLowerCase();
 
-    // Contoh:
     // 1,5 juta
     // 2.5 juta
     // 1 juta
@@ -104,7 +96,6 @@ class TransactionParser {
       }
     }
 
-    // Contoh:
     // 50rb
     // 50 rb
     // 50 ribu
@@ -123,7 +114,6 @@ class TransactionParser {
       }
     }
 
-    // Contoh:
     // Rp50.000
     // Rp 50.000
     // Rp50000
@@ -136,7 +126,6 @@ class TransactionParser {
       return _parseIndonesianNumber(rupiahMatch.group(1)!);
     }
 
-    // Contoh:
     // 50.000
     // 100000
     final normalMatches = RegExp(
@@ -161,7 +150,6 @@ class TransactionParser {
       clean = clean.replaceAll('.', '');
     }
 
-    // Format desimal seperti 1,5
     clean = clean.replaceAll(',', '.');
 
     return double.tryParse(clean) ?? 0;
@@ -307,7 +295,7 @@ class TransactionParser {
   static String extractDescription(String input) {
     var text = input.trim();
 
-    // Hapus nominal rupiah dan satuannya.
+    // Hapus nominal rupiah.
     text = text.replaceAll(
       RegExp(
         r'rp\.?\s*\d[\d.,]*\s*(juta|jt|ribu|rb|k)?',
@@ -316,6 +304,7 @@ class TransactionParser {
       '',
     );
 
+    // Hapus nominal dengan satuan.
     text = text.replaceAll(
       RegExp(
         r'\d+(?:[,.]\d+)?\s*(juta|jt|ribu|rb|k)',
@@ -324,6 +313,7 @@ class TransactionParser {
       '',
     );
 
+    // Hapus format 50.000.
     text = text.replaceAll(
       RegExp(r'\b\d{1,3}(?:\.\d{3})+\b'),
       '',
