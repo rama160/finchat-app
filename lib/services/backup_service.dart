@@ -1,142 +1,140 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
+import 'package:finchat_app/models/transaction_model.dart';
+import 'package:finchat_app/services/database_helper.dart';
 
-import '../models/transaction_model.dart';
-import 'database_helper.dart';
-
-/// Backup/restore portabel untuk migrasi perangkat atau reinstall.
-///
-/// File backup disimpan di lokasi yang dipilih pengguna sehingga tidak
-/// ikut terhapus ketika aplikasi di-uninstall.
 class BackupService {
-  static const _format = 'finchat_backup';
-  static const _version = 1;
+  static final DatabaseHelper _db = DatabaseHelper.instance;
 
-  static Future<String?> createBackup() async {
-    final transactions =
-        await DatabaseHelper.instance.getAllTransactions();
-    final deletedIds =
-        await DatabaseHelper.instance.getDeletedTransactionIds();
+  /// Membuat JSON backup dari seluruh transaksi.
+  static Future<String> createBackupJson() async {
+    final transactions = await _db.getAllTransactions();
 
-    final payload = {
-      'format': _format,
-      'version': _version,
+    final backup = {
+      'format': 'finchat_backup',
+      'version': 1,
       'created_at': DateTime.now().toIso8601String(),
-      'transactions': transactions.map((tx) => tx.toMap()).toList(),
-      'deleted_transaction_ids': deletedIds,
+      'transactions': transactions.map((transaction) {
+        return transaction.toMap();
+      }).toList(),
     };
 
-    final json = const JsonEncoder.withIndent('  ').convert(payload);
-    final bytes = Uint8List.fromList(utf8.encode(json));
-
-    final outputPath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Simpan Backup Finchat',
-      fileName:
-          'finchat_backup_${DateTime.now().millisecondsSinceEpoch}.json',
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-    );
-
-    if (outputPath == null || outputPath.isEmpty) {
-      return null;
-    }
-
-    await File(outputPath).writeAsBytes(bytes, flush: true);
-
-    return outputPath;
+    return const JsonEncoder.withIndent('  ').convert(backup);
   }
 
-  static Future<int> restoreBackup({
-    bool requireEmpty = true,
-  }) async {
-    final result = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['json'],
-      withData: true,
-      allowMultiple: false,
-    );
+  /// Simpan backup JSON ke file.
+  static Future<String?> exportBackup() async {
+    try {
+      final jsonData = await createBackupJson();
+      final bytes = Uint8List.fromList(utf8.encode(jsonData));
 
-    if (result == null || result.files.isEmpty) {
-      return 0;
-    }
+      final fileName =
+          'finchat_backup_${DateTime.now().millisecondsSinceEpoch}.json';
 
-    final pickedFile = result.files.single;
-
-    Uint8List? data = pickedFile.bytes;
-
-    // Beberapa Android/device tidak mengisi bytes secara langsung.
-    // Jika path tersedia, baca file dari path.
-    if (data == null && pickedFile.path != null) {
-      data = await File(pickedFile.path!).readAsBytes();
-    }
-
-    if (data == null || data.isEmpty) {
-      throw Exception('File backup tidak dapat dibaca.');
-    }
-
-    final decoded = jsonDecode(utf8.decode(data));
-
-    if (decoded is! Map || decoded['format'] != _format) {
-      throw Exception('File bukan backup Finchat yang valid.');
-    }
-
-    final rows = decoded['transactions'];
-
-    if (rows is! List) {
-      throw Exception('Data transaksi di backup tidak valid.');
-    }
-
-    final local = await DatabaseHelper.instance.getAllTransactions();
-
-    if (requireEmpty && local.isNotEmpty) {
-      throw Exception(
-        'Database lokal masih berisi ${local.length} transaksi. '
-        'Restore dibatalkan agar data tidak tertimpa.',
+      final path = await FilePicker.saveFile(
+        dialogTitle: 'Simpan Backup Finchat AI',
+        fileName: fileName,
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        bytes: bytes,
       );
+
+      if (path == null || path.isEmpty) {
+        debugPrint('Backup dibatalkan oleh pengguna.');
+        return null;
+      }
+
+      debugPrint('Backup berhasil disimpan: $path');
+      return path;
+    } catch (e, stackTrace) {
+      debugPrint('Gagal membuat backup: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
     }
+  }
 
-    final transactions = <TransactionModel>[];
-
-    for (final raw in rows) {
-      if (raw is! Map) continue;
-
-      final map = Map<String, dynamic>.from(raw);
-
-      final amount =
-          double.tryParse(map['amount']?.toString() ?? '') ?? 0;
-
-      if (amount <= 0) continue;
-
-      transactions.add(
-        TransactionModel.fromMap(map),
+  /// Membaca file backup JSON dan mengembalikan jumlah transaksi
+  /// yang berhasil dipulihkan.
+  static Future<int> importBackup() async {
+    try {
+      final files = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['json'],
+        allowMultiple: false,
       );
-    }
 
-    await DatabaseHelper.instance.restoreTransactions(
-      transactions,
-    );
+      if (files.isEmpty) {
+        debugPrint('Restore dibatalkan oleh pengguna.');
+        return 0;
+      }
 
-    final deleted = <int>[];
+      final pickedFile = files.first;
 
-    final deletedRaw = decoded['deleted_transaction_ids'];
+      Uint8List? bytes = pickedFile.bytes;
 
-    if (deletedRaw is List) {
-      for (final value in deletedRaw) {
-        final id = int.tryParse(value.toString());
+      if (bytes == null) {
+        bytes = await pickedFile.readAsBytes();
+      }
 
-        if (id != null) {
-          deleted.add(id);
+      if (bytes.isEmpty) {
+        throw Exception('File backup kosong.');
+      }
+
+      final jsonText = utf8.decode(bytes);
+      final decoded = jsonDecode(jsonText);
+
+      if (decoded is! Map<String, dynamic>) {
+        throw Exception('Format backup tidak valid.');
+      }
+
+      if (decoded['format'] != 'finchat_backup') {
+        throw Exception(
+          'File bukan backup Finchat AI yang valid.',
+        );
+      }
+
+      final transactionData = decoded['transactions'];
+
+      if (transactionData is! List) {
+        throw Exception(
+          'Data transaksi tidak ditemukan di file backup.',
+        );
+      }
+
+      int restoredCount = 0;
+
+      for (final item in transactionData) {
+        if (item is! Map) {
+          continue;
+        }
+
+        try {
+          final map = Map<String, dynamic>.from(item);
+
+          final transaction = TransactionModel.fromMap(map);
+
+          await _db.restoreTransaction(transaction);
+
+          restoredCount++;
+        } catch (e) {
+          debugPrint(
+            'Gagal restore satu transaksi: $e',
+          );
         }
       }
+
+      debugPrint(
+        'Restore selesai. $restoredCount transaksi dipulihkan.',
+      );
+
+      return restoredCount;
+    } catch (e, stackTrace) {
+      debugPrint('Gagal restore backup: $e');
+      debugPrintStack(stackTrace: stackTrace);
+      rethrow;
     }
-
-    await DatabaseHelper.instance.restoreDeletedTransactionIds(
-      deleted,
-    );
-
-    return transactions.length;
   }
 }
