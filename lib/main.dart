@@ -11,6 +11,7 @@ import 'models/transaction_model.dart';
 import 'services/database_helper.dart';
 import 'services/prefs_service.dart';
 import 'services/gemini_service.dart';
+import 'services/sheets_service.dart';
 import 'screens/chat_screen.dart';
 import 'screens/reports_screen.dart';
 import 'screens/settings_screen.dart';
@@ -181,8 +182,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (mounted) setState(() => _isListening = true);
     await _speech.listen(
-      localeId: 'id_ID',
-      listenOptions: const stt.SpeechListenOptions(
+      listenOptions: stt.SpeechListenOptions(
+        localeId: 'id_ID',
         listenMode: stt.ListenMode.confirmation,
         partialResults: true,
         cancelOnError: true,
@@ -244,7 +245,7 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
-                  value: type,
+                  initialValue: type,
                   decoration: const InputDecoration(labelText: 'Jenis'),
                   items: const [
                     DropdownMenuItem(value: 'income', child: Text('Pemasukan')),
