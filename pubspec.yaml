@@ -1,10 +1,11 @@
+```yaml
 name: finchat_app
 description: "Finchat AI - aplikasi keuangan offline-first dengan AI"
 publish_to: 'none'
-version: 4.1.7+8
+version: 4.1.8+9
 
 environment:
-  sdk: '>=3.8.0 <4.0.0'
+  sdk: '>=3.10.0 <4.0.0'
 
 dependencies:
   flutter:
@@ -21,7 +22,7 @@ dependencies:
   pdf: ^3.10.8
   printing: ^5.12.0
   speech_to_text: ^7.4.0
-  file_picker: 11.0.2
+  file_picker: ^12.2.0
 
 dev_dependencies:
   flutter_test:
@@ -31,3 +32,4 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+```
