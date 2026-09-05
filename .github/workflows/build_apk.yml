@@ -26,7 +26,24 @@ jobs:
           channel: 'stable'
 
       - name: Re-generate Android Project Files
-        run: flutter create . --platforms=android
+        run: flutter create . --platforms=android --org com.example --project-name finchat_app
+
+      - name: Verify Android application ID
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = [Path('android/app/build.gradle.kts'), Path('android/app/build.gradle')]
+          for p in candidates:
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              if 'applicationId = "com.example.finchat_app"' in s:
+                  break
+              if 'applicationId "com.example.finchat_app"' in s:
+                  break
+          else:
+              raise SystemExit('Application ID bukan com.example.finchat_app')
+          PY
 
       - name: Configure Android permissions and minimum SDK
         run: |
