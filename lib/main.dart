@@ -73,7 +73,20 @@ class _MainShellState extends State<MainShell> with WidgetsBindingObserver {
   }
 
   void _autoSync() {
-    unawaited(SheetsService.syncUnsyncedTransactions());
+    // Sinkronisasi otomatis bersifat best-effort. Jika URL Sheets belum
+    // diatur, perangkat offline, atau Apps Script sedang tidak tersedia,
+    // error tidak boleh menjadi uncaught async exception yang mematikan test
+    // atau mengganggu pencatatan transaksi lokal.
+    unawaited(_safeAutoSync());
+  }
+
+  Future<void> _safeAutoSync() async {
+    try {
+      await SheetsService.syncUnsyncedTransactions();
+    } catch (_) {
+      // Offline / URL belum dikonfigurasi: abaikan dan coba lagi saat resume
+      // atau pada interval berikutnya.
+    }
   }
 
   @override
