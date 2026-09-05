@@ -6,6 +6,7 @@ import '../models/transaction_model.dart';
 import '../services/database_helper.dart';
 import '../services/gemini_service.dart';
 import '../services/prefs_service.dart';
+import '../services/sheets_service.dart';
 import '../services/transaction_parser.dart';
 
 class ChatScreen extends StatefulWidget {
