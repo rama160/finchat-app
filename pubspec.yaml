@@ -1,4 +1,3 @@
-```yaml
 name: finchat_app
 description: "Finchat AI - aplikasi keuangan offline-first dengan AI"
 publish_to: 'none'
@@ -32,4 +31,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-```
