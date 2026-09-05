@@ -16,6 +16,20 @@ void main() {
     expect(result[2]['category'], 'Makanan');
   });
 
+  test('mengenali pemasukan sebagai income, bukan expense', () {
+    final result = TransactionParser.parseOne('pemasukan 1 juta');
+    expect(result?['type'], 'income');
+    expect(result?['amount'], 1000000);
+    expect(result?['category'], 'Pendapatan Lainnya');
+  });
+
+  test('mengenali gaji sebagai pemasukan kategori Gaji', () {
+    final result = TransactionParser.parseOne('gajian 5 juta');
+    expect(result?['type'], 'income');
+    expect(result?['amount'], 5000000);
+    expect(result?['category'], 'Gaji');
+  });
+
   test('mengenali nominal rupiah bertitik dan juta', () {
     expect(TransactionParser.parseOne('beli lipstick Rp50.000')?['amount'], 50000);
     expect(TransactionParser.parseOne('gaji bulan ini 5 juta')?['amount'], 5000000);
