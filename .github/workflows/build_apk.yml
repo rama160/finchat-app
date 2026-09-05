@@ -64,11 +64,17 @@ jobs:
           manifest = Path('android/app/src/main/AndroidManifest.xml')
           if manifest.exists():
               s = manifest.read_text()
-              permission = '<uses-permission android:name="android.permission.RECORD_AUDIO"/>'
-              if permission not in s:
-                  s = s.replace('<manifest ', '<manifest ', 1)
-                  insert_at = s.find('>') + 1
-                  s = s[:insert_at] + '\n    ' + permission + '\n' + s[insert_at:]
+              permissions = [
+                  '<uses-permission android:name="android.permission.INTERNET"/>',
+                  '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>',
+                  '<uses-permission android:name="android.permission.RECORD_AUDIO"/>',
+              ]
+              insert_at = s.find('>') + 1
+              missing = [permission for permission in permissions if permission not in s]
+              if missing:
+                  s = s[:insert_at] + '\n' + '\n'.join(
+                      '    ' + permission for permission in missing
+                  ) + '\n' + s[insert_at:]
 
               queries = '''    <queries>
                   <intent>
